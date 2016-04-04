@@ -10,7 +10,7 @@ from zope.interface import (
 from zope.interface.verify import verifyObject
 from zope.component import (
     IFactory,
-    getAdapter,
+    getMultiAdapter,
     createObject,
     getGlobalSiteManager,
     )
@@ -54,6 +54,15 @@ class IPersonContextFactory(IFactory):
     pass
 
 
+@implementer(IPersonContextFactory)
+class UserContextFactory(object):
+    def __init__(self):
+        pass
+
+    def __call__(self):
+        return UserContext()
+
+
 class IKiller(Interface):
     get_anniversary = Attribute(u'')
 
@@ -63,7 +72,7 @@ class IKiller(Interface):
 
 @implementer(IKiller)
 class Daemon(object):
-    def __init__(self, user):
+    def __init__(self, user, context):
         self._user = user
         self.get_anniversary = datetime.datetime.now
 
@@ -79,15 +88,22 @@ class PersonType(enum.Enum):
 def main():
     registry = getGlobalSiteManager()
     person_type = PersonType.user.value
-    registry.registerUtility(UserFactory(), IFactory, person_type)  # factory settings
-    registry.registerAdapter(Daemon, [IPerson], IKiller, person_type)  # adapter settings
+    registry.registerUtility(
+        UserFactory(), IFactory, person_type)  # factory settings
+    registry.registerUtility(
+        UserContextFactory(), IPersonContextFactory, person_type)  # factory settings
+    registry.registerAdapter(
+        Daemon, [IPerson, IPersonContext], IKiller, person_type)  # adapter settings
     user = createObject(person_type, 'test')
-    killer = getAdapter(user, IKiller, person_type)
-    assert registry.adapters.lookup([IPerson], IKiller, person_type) is Daemon
+    user_context = registry.queryUtility(IPersonContextFactory, person_type)()
+    killer = getMultiAdapter([user, user_context], IKiller, person_type)
+    assert registry.adapters.lookup([IPerson, IPersonContext], IKiller, person_type) is Daemon
     assert verifyObject(IKiller, killer)
     assert IKiller.providedBy(killer)
     assert verifyObject(IPerson, user)
     assert IPerson.providedBy(user)
+    assert verifyObject(IPersonContext, user_context)
+    assert IPersonContext.providedBy(user_context)
     killer.kill()
     print(user.dead_at)
 
